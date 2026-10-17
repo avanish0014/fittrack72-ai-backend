@@ -1,20 +1,40 @@
+
 import express from "express";
 import rateLimit from "express-rate-limit";
 import OpenAI from "openai";
-import { applicationDefault, initializeApp } from "firebase-admin/app";
+import fs from "node:fs";
+import { cert, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 
 const app = express();
 
 // Render proxy configuration
 app.set("trust proxy", 1);
-
 app.disable("x-powered-by");
 app.use(express.json({ limit: "24kb" }));
 
-// Firebase Admin initialization
+// Load Firebase Admin credentials from Render Secret File
+const serviceAccountPath =
+  "/etc/secrets/firebase-service-account.json";
+
+if (!fs.existsSync(serviceAccountPath)) {
+  console.error("Firebase Secret File is missing:", serviceAccountPath);
+  process.exit(1);
+}
+
+let serviceAccount;
+
+try {
+  serviceAccount = JSON.parse(
+    fs.readFileSync(serviceAccountPath, "utf8")
+  );
+} catch (error) {
+  console.error("Firebase Secret File is not valid JSON.");
+  process.exit(1);
+}
+
 initializeApp({
-  credential: applicationDefault()
+  credential: cert(serviceAccount)
 });
 
 const auth = getAuth();
@@ -70,7 +90,7 @@ app.post("/v1/ai-coach", limiter, async (req, res) => {
     try {
       decoded = await auth.verifyIdToken(match[1], true);
     } catch (error) {
-      console.error("Firebase token verification failed:", {
+      console.error("Firebase token verification failed", {
         name: error?.name || "Error",
         code: error?.code || "unknown"
       });
@@ -152,7 +172,6 @@ app.post("/v1/ai-coach", limiter, async (req, res) => {
       });
     }
 
-    // Never log the user's prompt or fitness context.
     console.info("AI Coach request completed", {
       uid: decoded.uid,
       model
